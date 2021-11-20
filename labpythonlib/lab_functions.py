@@ -17,7 +17,7 @@ from copy import copy
 # =============
 def sinusoidal_reference_generator(q0, a, f, t_change, t):
     """
-    @info: generates a sine signal.
+    @info: generates a sine signal for "t_change" seconds then change to constant reference.
 
     @inputs: 
     ------
