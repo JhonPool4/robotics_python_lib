@@ -1,5 +1,5 @@
 # Library description
-This library have functions to generate tree differents trajectories, robot dinamysc and kinematics is computed using Pinocchio library.
+This library have useful functions for robotics labs. The robot dynamics and kinematics is computed using Pinocchio library.
 
 ## Install library:
 Move to library location
