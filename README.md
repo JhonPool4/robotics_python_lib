@@ -9,5 +9,5 @@ Build library
 <pre><code>$ python3 setup.py bdist_wheel
 </code></pre>
 Install library
-<pre><code>$ pip3 install dist/labpythonlib-3.0.0-py3-none-any.whl
+<pre><code>$ pip3 install dist/labpythonlib-4.0.0-py3-none-any.whl
 </code></pre>
