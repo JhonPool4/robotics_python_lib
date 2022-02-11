@@ -7,6 +7,7 @@
 # ======================
 #   required libraries
 # ======================
+from labpythonlib.lab_functions import rot2quat, rpy2rot
 from visualization_msgs.msg import Marker
 from geometry_msgs.msg import Point
 import numpy as np
@@ -94,3 +95,118 @@ class BallMarker(object):
 
     def publish(self):
         self.marker_pub.publish(self.marker)
+
+
+# =====================
+#   Class ball marker
+# =====================
+class ArrowMarker(object):
+    """
+    @info : class to visualize arrow markers in RViz
+    """
+    id = 0
+
+    def __init__(self, color, alpha=1.0, scale=0.05):
+
+        reference_frame = rospy.get_param('reference_frame','base_link') # important 
+        self.marker_pub = rospy.Publisher("visualization_marker", Marker,
+                                          queue_size=10)
+        self.marker = Marker()
+        self.marker.header.frame_id = reference_frame
+        self.marker.ns = "arrow_markers"
+        self.marker.id = ArrowMarker.id
+        ArrowMarker.id += 1
+        self.marker.type = self.marker.ARROW
+        self.marker.action = self.marker.ADD
+        self.marker.pose.position.x = 0.0
+        self.marker.pose.position.y = 0.0
+        self.marker.pose.position.z = 0.0
+        self.marker.pose.orientation.x = 0.0
+        self.marker.pose.orientation.y = 0.0
+        self.marker.pose.orientation.z = 0.0
+        self.marker.pose.orientation.w = 1.0
+        self.marker.scale.x = scale[0]
+        self.marker.scale.y = scale[1]
+        self.marker.scale.z = scale[2]
+        self.setColor(color, alpha)
+        self.marker.lifetime = rospy.Duration()
+
+    def setColor(self, color, alpha=1.0):
+        self.marker.color.r = color[0]
+        self.marker.color.g = color[1]
+        self.marker.color.b = color[2]
+        self.marker.color.a = alpha
+
+    def position(self, T):
+        """
+        Info: set position (4x4 NumPy homogeneous matrix) for the ball and publish it
+
+        """
+        self.marker.pose.position.x = T[0,3]
+        self.marker.pose.position.y = T[1,3]
+        self.marker.pose.position.z = T[2,3]
+        self.publish()
+
+    def xyz(self, position):
+        """
+        Info: set position (list) for the ball and publish it
+
+        """
+        self.marker.pose.position.x = position[0]
+        self.marker.pose.position.y = position[1]
+        self.marker.pose.position.z = position[2]
+        self.publish()
+
+    def rotation(self, quat):
+        self.marker.pose.orientation.w = quat[0]
+        self.marker.pose.orientation.x = quat[1]
+        self.marker.pose.orientation.y = quat[2]
+        self.marker.pose.orientation.z = quat[3]
+
+    def publish(self):
+        self.marker_pub.publish(self.marker)
+
+
+class FrameMarker(object):
+    """
+    @info:  class to visualize a frame aixs in Rviz
+    @inputs: 
+    --------
+        - xyz_pos: Cartesian position of the the axis
+        - alpha: marker transparency (0: solid color and 1: transparent)
+    """
+    def __init__(self, xyz_pos=[0,0,0], alpha=0.5):
+        self.z_arrow = ArrowMarker(color['BLUE'], scale=[0.1, 0.015, 0.015], alpha=alpha)
+        self.z_arrow.xyz(xyz_pos)
+        self.Rz = np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]])
+        self.z_arrow.rotation(rot2quat(self.Rz))
+
+        self.x_arrow = ArrowMarker(color['RED'], scale=[0.1, 0.015, 0.015], alpha=alpha)
+        self.x_arrow.xyz(xyz_pos)
+        self.Rx = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        self.x_arrow.rotation(rot2quat(self.Rx))
+
+        self.y_arrow = ArrowMarker(color['GREEN'], scale=[0.1, 0.015, 0.015], alpha=alpha)
+        self.y_arrow.xyz(xyz_pos)
+        self.Ry = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
+        self.y_arrow.rotation(rot2quat(self.Ry))    
+
+    def rotation(self, rpy):
+        """
+        @info rotation of the frame axis
+        @inputs:
+        -------
+            - rpy: rotation in roll, pitch, yaw (ZYX euler angles) representation
+        """
+        R=rpy2rot(rpy)
+        self.x_arrow.rotation(rot2quat(np.dot(R, self.Rx)))
+        self.y_arrow.rotation(rot2quat(np.dot(R, self.Ry)))
+        self.z_arrow.rotation(rot2quat(np.dot(R, self.Rz)))
+
+    def publish(self):
+        """
+        @info publish the information of the marker
+        """
+        self.z_arrow.publish()
+        self.x_arrow.publish()
+        self.y_arrow.publish()
