@@ -81,7 +81,7 @@ class BallMarker(object):
         self.marker.pose.position.x = T[0,3]
         self.marker.pose.position.y = T[1,3]
         self.marker.pose.position.z = T[2,3]
-        self.publish()
+        #self.publish()
 
     def xyz(self, position):
         """
@@ -91,7 +91,7 @@ class BallMarker(object):
         self.marker.pose.position.x = position[0]
         self.marker.pose.position.y = position[1]
         self.marker.pose.position.z = position[2]
-        self.publish()
+        #self.publish()
 
     def publish(self):
         self.marker_pub.publish(self.marker)
@@ -145,7 +145,7 @@ class ArrowMarker(object):
         self.marker.pose.position.x = T[0,3]
         self.marker.pose.position.y = T[1,3]
         self.marker.pose.position.z = T[2,3]
-        self.publish()
+        #self.publish()
 
     def xyz(self, position):
         """
@@ -155,7 +155,7 @@ class ArrowMarker(object):
         self.marker.pose.position.x = position[0]
         self.marker.pose.position.y = position[1]
         self.marker.pose.position.z = position[2]
-        self.publish()
+        #self.publish()
 
     def rotation(self, quat):
         self.marker.pose.orientation.w = quat[0]
@@ -191,17 +191,21 @@ class FrameMarker(object):
         self.Ry = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
         self.y_arrow.rotation(rot2quat(self.Ry))    
 
-    def rotation(self, rpy):
+    def rotation(self, R):
         """
         @info rotation of the frame axis
         @inputs:
         -------
-            - rpy: rotation in roll, pitch, yaw (ZYX euler angles) representation
+            - R: rotation matrix
         """
-        R=rpy2rot(rpy)
         self.x_arrow.rotation(rot2quat(np.dot(R, self.Rx)))
         self.y_arrow.rotation(rot2quat(np.dot(R, self.Ry)))
         self.z_arrow.rotation(rot2quat(np.dot(R, self.Rz)))
+
+    def xyz(self, xyz_pos):
+        self.x_arrow.xyz(xyz_pos)
+        self.y_arrow.xyz(xyz_pos)
+        self.z_arrow.xyz(xyz_pos)                
 
     def publish(self):
         """
