@@ -13,6 +13,7 @@ import pinocchio as pin
 from copy import copy
 from numpy.linalg import inv
 from numpy import matmul as mx
+import pandas as pd
 
 # =============
 #   functions
