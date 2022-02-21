@@ -149,6 +149,21 @@ def reference_trajectory(x_des, x_ref0, dx_ref0, dt):
 
     return x_ref, dx_ref, ddx_ref
 
+def update_learning_rate(x, x_min=0.1, x_max=0.7):    
+    """
+    @info function to update learning rate
+    @inputs:
+    --------
+        - x: input signal
+        - x_min: behind this value the output is 1
+        - x_mx: above this value the output is 0
+    """
+    #x = np.linspace(0, 1.2, 100)
+    y = np.piecewise(x, [x < x_min, (x >=x_min)* (x< x_max),              x >= x_max], \
+                        [1,         lambda x: (x_min-x)/(x_max-x_min)+1,  0         ])
+    
+    return y
+    
 def tl(array):
     """
     @info: add element to list
