@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-VERSION='4.0.1'
+VERSION='4.0.2'
 DESCRIPTION='Library with useful functions for robotics labs.'
 LONG_DESCRIPTION='This library have functions to generate tree differents trajectories, robot dinamyc and kinematic is computed using Pinocchio library.'
 

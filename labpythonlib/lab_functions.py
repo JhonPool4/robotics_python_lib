@@ -11,6 +11,9 @@ import os
 import numpy as np
 import pinocchio as pin
 from copy import copy
+from numpy.linalg import inv
+from numpy import matmul as mx
+import pandas as pd
 
 # =============
 #   functions
@@ -146,6 +149,21 @@ def reference_trajectory(x_des, dx_des, x_ref0, dx_ref0, dt):
 
     return x_ref, dx_ref, ddx_ref
 
+def update_learning_rate(x, x_min=0.1, x_max=0.7):    
+    """
+    @info function to update learning rate
+    @inputs:
+    --------
+        - x: input signal
+        - x_min: behind this value the output is 1
+        - x_mx: above this value the output is 0
+    """
+    #x = np.linspace(0, 1.2, 100)
+    y = np.piecewise(x, [x < x_min, (x >=x_min)* (x< x_max),              x >= x_max], \
+                        [1,         lambda x: (x_min-x)/(x_max-x_min)+1,  0         ])
+    
+    return y
+    
 def tl(array):
     """
     @info: add element to list
@@ -647,7 +665,7 @@ class Robot(object):
             if (np.linalg.norm(e)<best_norm_e):
                 best_norm_e = np.linalg.norm(e)
                 q_best = copy(q) 
-        return q_best 
+        return q
 
     def read_joint_position_velocity_acceleration(self):
         return self.q, self.dq, self.ddq
@@ -672,7 +690,7 @@ class Robot(object):
 
     def get_b(self):
         return self.b
-    
+
     def get_g(self):
         return self.g
 
@@ -768,3 +786,209 @@ def jacobian_xyz_ur5(q, delta=0.0001):
         J[:,i]  = (dT[0:3,3] - T[0:3,3])/delta
     return J        
 
+
+
+class MultipleKalmanDerivator:
+    """
+    @info: Class to derivate using Kalman Filter all joints are once and obtain articular jerk
+
+    @methods:
+        - initialize(dq, ddqq, dddq)
+        - update(dqr, ddqr) -> dq, ddq, dddq
+    """  
+    def __init__(self, deltaT, ndof = 6, sigmaQ = 1e-4, sigmaR = 1e-4):
+        self.dq = np.zeros(ndof)
+        self.ddq = np.zeros(ndof)
+        self.dddq = np.zeros(ndof)
+        
+        self.deltaT = deltaT
+        self.ndof = ndof
+
+        self.derivators = []
+        for _ in range(ndof):
+            self.derivators.append(KalmanDerivator(self.deltaT, sigmaQ, sigmaR))
+
+    def initialize(self, dq, ddq, dddq):
+        for i in range(self.ndof):
+            self.derivators[i].initialize(dq[i], ddq[i], dddq[i])
+        
+
+    def update(self, dqr, ddqr):
+        dq = []
+        ddq = []
+        dddq = []
+
+        for i in range(self.ndof):
+            dx, ddx, dddx = self.derivators[i].kalman_filter(dqr[i], ddqr[i])#)
+            dq.append(dx)
+            ddq.append(ddx)
+            dddq.append(dddx)
+
+        self.dq = np.array(dq)
+        self.ddq = np.array(ddq)
+        self.dddq = np.array(dddq)
+
+        return self.dq, self.ddq, self.dddq
+
+class KalmanDerivator:
+    """
+    @info: Class to derivate using Kalman Filter
+
+    @methods:
+        - initialize(dq, ddqq, dddq)
+        - kalman_filter(dqr, ddqr) -> dq, ddq, dddq
+    """  
+    def __init__(self, deltaT, sigmaQ = 1e-4, sigmaR = 1e-4):
+        self.deltaT = deltaT
+        
+        self.x_k_k = np.zeros((3,1))
+        self.x_k1_k = np.zeros((3,1))
+        
+        self.P_k_k =  np.eye(3)
+        self.P_k1_k = np.eye(3)
+        
+        self.K = np.zeros((3,2)) 
+        
+
+        self.Q = sigmaQ * np.eye(3)
+
+        #self.Q = 1*np.array([[deltaT**5/30, deltaT**4/24, deltaT**3/6],
+        #                    [deltaT**4/24, deltaT**3/3, deltaT**2/2],
+        #                    [deltaT**3/6, deltaT**2/2, deltaT]]) #
+
+        self.R = sigmaR * np.eye(2)
+        
+        self.I = np.eye(3)
+
+    def initialize(self, vel, acc, jerk):
+        self.x_k_k[0][0], self.x_k_k[1][0], self.x_k_k[2][0] = vel, acc, jerk
+        
+    def kalman_filter(self, vel, acc):
+        F = np.array([[1., self.deltaT, self.deltaT**2/2],[0., 1., self.deltaT],[0.,0.,1.]])
+        H = np.array([[1., 0., 0.],[0., 1., 0.]])
+
+        z = np.array([[vel],[acc]])
+
+        #Prediction
+        self.x_k1_k = mx(F,self.x_k_k)
+        self.P_k1_k = mx(F, mx(self.P_k_k, np.transpose(F))) +  self.Q
+
+        #Update
+        self.x_k_k = self.x_k1_k + mx(self.K, (z - mx(H, self.x_k1_k)))
+        self.P_k_k = mx(mx((self.I - mx(self.K, H)), self.P_k1_k), np.transpose(self.I - mx(self.K, H))) + mx(self.K, mx(self.R, np.transpose(self.K))) 
+        #self.P_k_k = mx(self.I - mx(self.K,H), self.P_k1_k)
+
+        self.K = mx(mx(self.P_k1_k, np.transpose(H)), inv(mx(H, mx(self.P_k1_k, np.transpose(H))) + self.R))   
+        
+        return self.x_k_k[0][0], self.x_k_k[1][0], self.x_k_k[2][0]
+
+
+
+class DataReader:
+    """
+    @info: Class to obtain kinematics measurements from external dataset (JIGSAWS)
+
+    @methods:
+        - read_dataset(Boolean right_arm)
+        - calculate()
+        - check()
+        - dataset_trajectory_generator()
+    """ 
+    def __init__(self, path, dt = 0.01):
+        
+        self.datapath = path
+        self.xs = np.array([])
+        self.dxs = np.array([])
+        self.ddxs = np.array([])
+        self.dddxs = np.array([])
+        self.dt = dt
+        self.max_count = 0
+        self.df = None
+        self.i = 0
+
+    def read_dataset(self, right_arm = False):
+        self.df = pd.read_csv(self.datapath, delimiter = r"\s+", header = None)
+        df = self.df
+        pose = []
+        vel = []
+        nrows = df.shape[0]
+        self.max_count = nrows- 2
+
+
+        if right_arm == False:
+            # Master
+            ix, iy, iz  = 1, 2, 3
+            iRs, iRe = 4, 12
+            idx, idy, idz = 13, 14, 15
+            iwx, iwy, iwz = 16, 17, 18
+
+            # Slave
+            # ix, iy, iz  = 39,40,41
+            # iRs, iRe = 42,50
+            # idx, idy, idz = 51,52,53
+            # iwx, iwy, iwz = 54,55,56
+        else: 
+            # Master
+            ix, iy, iz  = 20, 21, 22
+            iRs, iRe = 23, 31
+            idx, idy, idz = 32,33,34
+            iwx, iwy, iwz = 35,36,37
+        
+            # Slave
+            # ix, iy, iz  = 58, 59, 60
+            # iRs, iRe = 61, 69
+            # idx, idy, idz = 70,71,72
+            # iwx, iwy, iwz = 73,74, 75
+
+        for i in np.arange(nrows):
+            x = df.iloc[i, ix - 1] # 0.4#- 0.6#- 0.4#+ (right_arm)*(-0.1) + (1 - right_arm)*(0.1) #+0.0#
+            y = df.iloc[i, iy - 1] - 0.5 #+ (right_arm)*(-0.45) + (1 - right_arm)*(0.45) #+0.2#
+            z = df.iloc[i, iz - 1] - 0.1 #+ 0.8 #+0.5#
+
+            R = df.iloc[i, iRs-1:iRe].to_numpy().reshape(3,3)
+            rpy = rot2rpy(R)
+
+            roll = rpy[0]
+            pitch = rpy[1]
+            yaw = rpy[2]
+
+            dx = df.iloc[i, idx - 1]
+            dy = df.iloc[i, idy - 1]
+            dz = df.iloc[i, idz - 1]
+
+            wx = df.iloc[i, iwx - 1]
+            wy = df.iloc[i, iwy - 1]
+            wz = df.iloc[i, iwz - 1]
+
+            pose.append( [x, y, z, roll, pitch, yaw] )
+            vel.append( [dx, dy, dz, wx, wy, wz])
+
+        self.xs = np.array(pose)
+        self.dxs = np.array(vel)
+
+    def calculate(self):
+        self.ddxs = np.diff(self.dxs, axis = 0) / self.dt
+        self.dddxs = np.diff(self.ddxs, axis = 0) / self.dt
+
+        self.xs = self.xs[:-4,:]
+        self.dxs = self.dxs[:-4,:]
+        self.ddxs = self.ddxs[:-3,:]
+        self.dddxs = self.dddxs[:-2,:]
+
+    def dataset_trajectory_generator(self):
+        x = self.xs[self.i,:]
+        dx = self.dxs[self.i,:]
+        ddx = self.ddxs[self.i,:]
+        dddx = self.dddxs[self.i,:]
+
+        self.i += 1
+        return x, dx, ddx, dddx
+
+    def check(self):
+        if self.i >= self.max_count-4:
+            return True 
+        return False
+
+
+    def reset(self):
+        self.i = 0
