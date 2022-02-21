@@ -610,7 +610,7 @@ class Robot(object):
                 q_best = copy(q) 
         return q_best 
 
-    def inverse_kinematics_pose(self, x_des, R_des, q0):
+    def inverse_kinematics_pose(self, x_des, R_des, q0, max_iter=10):
         """
         @info: computes joint position (q) from cartesian position (xyz) and orientation(axis/angle) 
                using the method of damped pseudo-inverse.
@@ -624,7 +624,6 @@ class Robot(object):
             - q_best  : joint position
         """         
         best_norm_e     = 1e-6 
-        max_iter        = 10
         delta           = 1
         lambda_         = 0.0000001
         q               = copy(q0)
