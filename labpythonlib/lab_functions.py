@@ -123,7 +123,7 @@ def circular_trayectory_generator(t):
 
     return pos, vel, accel, jerk
 
-def reference_trajectory(x_des, x_ref0, dx_ref0, dt):
+def reference_trajectory(x_des, dx_des, x_ref0, dx_ref0, dt):
     """
     Info: Generates a reference trajectory based on a desired trajectory.
 
@@ -139,7 +139,7 @@ def reference_trajectory(x_des, x_ref0, dx_ref0, dt):
     k0 = wn*wn
     k1 = 2*psi*wn
     # compute ddx_ref
-    ddx_ref = np.multiply(x_des,k0) -  np.multiply(dx_ref0,k1) - np.multiply(x_ref0,k0)
+    ddx_ref = np.multiply(dx_des,k1) + np.multiply(x_des,k0) -  np.multiply(dx_ref0,k1) - np.multiply(x_ref0,k0)
     # double integration 
     dx_ref = dx_ref0 + dt*ddx_ref
     x_ref  = x_ref0  + dt*dx_ref
