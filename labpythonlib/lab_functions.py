@@ -13,7 +13,9 @@ import pinocchio as pin
 from copy import copy
 from numpy.linalg import inv
 from numpy import matmul as mx
+from numpy import transpose as tr
 import pandas as pd
+
 
 # =============
 #   functions
@@ -149,7 +151,7 @@ def reference_trajectory(x_des, dx_des, x_ref0, dx_ref0, dt):
 
     return x_ref, dx_ref, ddx_ref
 
-def update_learning_rate(x, x_min=0.1, x_max=0.7):    
+def update_learning_rate(x, x_min=0.1, x_max=0.7, y_min=0.01, y_max=1):    
     """
     @info function to update learning rate
     @inputs:
@@ -160,7 +162,7 @@ def update_learning_rate(x, x_min=0.1, x_max=0.7):
     """
     #x = np.linspace(0, 1.2, 100)
     y = np.piecewise(x, [x < x_min, (x >=x_min)* (x< x_max),              x >= x_max], \
-                        [1,         lambda x: (x_min-x)/(x_max-x_min)+1,  0         ])
+                        [y_max,         lambda x: (x_min-x)/(x_max-x_min)+1,  y_min ])
     
     return y
     
@@ -790,98 +792,98 @@ def jacobian_xyz_ur5(q, delta=0.0001):
 
 class MultipleKalmanDerivator:
     """
-    @info: Class to derivate using Kalman Filter all joints are once and obtain articular jerk
-
-    @methods:
-        - initialize(dq, ddqq, dddq)
-        - update(dqr, ddqr) -> dq, ddq, dddq
-    """  
-    def __init__(self, deltaT, ndof = 6, sigmaQ = 1e-4, sigmaR = 1e-4):
-        self.dq = np.zeros(ndof)
-        self.ddq = np.zeros(ndof)
-        self.dddq = np.zeros(ndof)
-        
+    @info creates a kalman filter for each degree of freedom
+    @inputs:
+    -------
+        - deltaT: samping time
+        - n_obs: number of observable states
+        - x0, dx0, ddx0: initial states [n_dof,]
+        - sigmaR: covariance matrix that indicates model uncertainty / motion noise
+        - sigmaQ: covariance matrix that indicates measurement noise  
+    """
+    def __init__(self, deltaT, x0, dx0, ddx0, n_obs=2, sigmaR = 1e-3, sigmaQ = 1):
+        # initial conditions
+        self.q = copy(x0)
+        self.dq = copy(dx0)
+        self.ddq = copy(ddx0)
+        self.n_dof = len(self.q)
+        # samping time
         self.deltaT = deltaT
-        self.ndof = ndof
-
+        # list to store KalmanDerivator objects 
         self.derivators = []
-        for _ in range(ndof):
-            self.derivators.append(KalmanDerivator(self.deltaT, sigmaQ, sigmaR))
-
-    def initialize(self, dq, ddq, dddq):
-        for i in range(self.ndof):
-            self.derivators[i].initialize(dq[i], ddq[i], dddq[i])
-        
-
-    def update(self, dqr, ddqr):
-        dq = []
-        ddq = []
-        dddq = []
-
-        for i in range(self.ndof):
-            dx, ddx, dddx = self.derivators[i].kalman_filter(dqr[i], ddqr[i])#)
-            dq.append(dx)
-            ddq.append(ddx)
-            dddq.append(dddx)
-
-        self.dq = np.array(dq)
-        self.ddq = np.array(ddq)
-        self.dddq = np.array(dddq)
-
-        return self.dq, self.ddq, self.dddq
+        # create and initialiZe KalmanDerivator objects 
+        for i in range(self.n_dof):
+            x0 = np.array([self.q[i], self.dq[i], self.ddq[i]])
+            self.derivators.append(KalmanDerivator(x0, n_obs, self.deltaT, sigmaR, sigmaQ))
+                
+    def update(self, qr, dqr):
+        # update the kalman filter for each degree of freedom
+        for i in range(self.n_dof):
+            q, dq, ddq = self.derivators[i].run_kalman_filter(qr[i], dqr[i])
+            self.q[i] = q
+            self.dq[i] = dq
+            self.ddq[i] = ddq
+        # return filtered signal
+        return self.q, self.dq, self.ddq
 
 class KalmanDerivator:
     """
-    @info: Class to derivate using Kalman Filter
+    @info implement the kalman filter algorithm of the book "Probabilistic Robotics (Thrun 2000, pg. 36)" 
+    @inputs:
+    -------
+        - x_est0: initial states
+        - n_obs: number of observable states
+        - deltaT: samping time
+        - sigmaR: covariance matrix that indicates model uncertainty / motion noise
+        - sigmaQ: covariance matrix that indicates measurement noise  
+    """
+    def __init__(self, x_est0, n_obs, deltaT, sigmaR = 1e-3, sigmaQ = 1):
+        # useful parameters
+        self.deltaT = deltaT # samping time
+        self.n_input = len(x_est0) # input states
+        self.n_obs = n_obs # output states
 
-    @methods:
-        - initialize(dq, ddqq, dddq)
-        - kalman_filter(dqr, ddqr) -> dq, ddq, dddq
-    """  
-    def __init__(self, deltaT, sigmaQ = 1e-4, sigmaR = 1e-4):
-        self.deltaT = deltaT
+        # prediction stage: initial values
+        self.F = np.array([[1., self.deltaT, self.deltaT**2/2],[0., 1., self.deltaT],[0.,0.,1.]])
+        self.x_hat = np.zeros((self.n_input,1)) # [q0, dq0, ddq0]
+        self.P_hat =  np.zeros((self.n_input, self.n_input))
+
+        # observation-correction stage: initial values
+        self.H = self.create_H(self.n_obs, self.n_input)
+        self.x_est = copy(x_est0).reshape((self.n_input,1)) # [q, dq ,ddq]
+        self.P_est = np.zeros((self.n_input, self.n_input))
         
-        self.x_k_k = np.zeros((3,1))
-        self.x_k1_k = np.zeros((3,1))
+        # covariance matrices
+        self.R = sigmaR*np.eye(self.n_input)  # model uncertainty
+        self.Q = sigmaQ*np.eye(self.n_obs) # measurement noise
+
+        # kalman gain: initial value
+        self.K = np.zeros((self.n_input,self.n_obs))         
+
+        self.I = np.eye(self.n_input)
+
+    def create_H(self, n_obs, n_input):
+        if n_input-n_obs !=0:
+            return np.concatenate((np.eye(n_obs), np.zeros((n_obs,n_input-n_obs))), axis=1)
+        else:
+            return np.eye(n_input)
         
-        self.P_k_k =  np.eye(3)
-        self.P_k1_k = np.eye(3)
+    def run_kalman_filter(self, q, dq):
+        # measurements
+        self.z = np.array([[q],[dq]])
+        # prediction stage
+        self.x_hat = mx(self.F,self.x_est)
+        self.P_hat = mx(self.F, mx(self.P_est, tr(self.F))) +  self.R
+
+        # kalman gain
+        self.K = mx(mx(self.P_hat, tr(self.H)), inv(mx(self.H, mx(self.P_hat, tr(self.H))) + self.Q))   
+
+        # observation-correction stage      
+        self.x_est = self.x_hat + mx(self.K, (self.z - mx(self.H, self.x_hat)))
+        self.P_est = mx(self.I - mx(self.K,self.H), self.P_hat)
         
-        self.K = np.zeros((3,2)) 
-        
-
-        self.Q = sigmaQ * np.eye(3)
-
-        #self.Q = 1*np.array([[deltaT**5/30, deltaT**4/24, deltaT**3/6],
-        #                    [deltaT**4/24, deltaT**3/3, deltaT**2/2],
-        #                    [deltaT**3/6, deltaT**2/2, deltaT]]) #
-
-        self.R = sigmaR * np.eye(2)
-        
-        self.I = np.eye(3)
-
-    def initialize(self, vel, acc, jerk):
-        self.x_k_k[0][0], self.x_k_k[1][0], self.x_k_k[2][0] = vel, acc, jerk
-        
-    def kalman_filter(self, vel, acc):
-        F = np.array([[1., self.deltaT, self.deltaT**2/2],[0., 1., self.deltaT],[0.,0.,1.]])
-        H = np.array([[1., 0., 0.],[0., 1., 0.]])
-
-        z = np.array([[vel],[acc]])
-
-        #Prediction
-        self.x_k1_k = mx(F,self.x_k_k)
-        self.P_k1_k = mx(F, mx(self.P_k_k, np.transpose(F))) +  self.Q
-
-        #Update
-        self.x_k_k = self.x_k1_k + mx(self.K, (z - mx(H, self.x_k1_k)))
-        self.P_k_k = mx(mx((self.I - mx(self.K, H)), self.P_k1_k), np.transpose(self.I - mx(self.K, H))) + mx(self.K, mx(self.R, np.transpose(self.K))) 
-        #self.P_k_k = mx(self.I - mx(self.K,H), self.P_k1_k)
-
-        self.K = mx(mx(self.P_k1_k, np.transpose(H)), inv(mx(H, mx(self.P_k1_k, np.transpose(H))) + self.R))   
-        
-        return self.x_k_k[0][0], self.x_k_k[1][0], self.x_k_k[2][0]
-
+        # return position, velocity and acceleration
+        return self.x_est[0][0], self.x_est[1][0], self.x_est[2][0]
 
 
 class DataReader:
