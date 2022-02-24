@@ -70,63 +70,37 @@ def step_reference_generator(q0, a, t_step, t):
         ddq = 0         # [rad/s^2]            
     return q, dq, ddq
 
-def circular_trayectory_generator(t):
+def circular_trayectory_generator(t,radius=0.05, z_amplitude=0.02, f=0.1):
     """
-    Generate points of a circular trayectory.
+    @info generate points of a circular trayectory.
 
-    Inputs:
+    @inputs:
     -------
-        -   t   : time [s]
+        - t : simulation time [s]
+        - radius: radius of circular trajectory on xy-plane [m]
+        - z_amplitude: amplitude of sinusoidal trajectory on z-plane [m]
+        - f: frequency [hz]
 
     Outpus:
     -------
-        -   x_circ_tray     : "x" position point of circular trayectory at time "t"
-        -   y_circ_tray     : "y" position point of circular trayectory at time "t"
-        -   dx_circ_tray    : "x" velocity point of circular trayectory at time "t"
-        -   dy_circ_tray    : "y" velocity point of circular trayectory at time "t"
-        -   ddx_circ_tray   : "x" acceleration point of circular trayectory at time "t"
-        -   ddy_circ_tray   : "y" acceleration point of circular trayectory at time "t"        
+        - pose: end-effector position (xyz) and orientation (rpy)   
+        - dpose: end-effector velocity (xyz) and dorientation (rpy)        
     """
-    r_circ  = 0.05                                  #   [m] 
-    r_z     = 0.02
 
     # Parameters of circular trayetory     
-    f           = 0.1                       # frecuency     [Hz]
-    w           = 2*np.pi*f                 # angular velocity [rad/s]
+    w = 2*np.pi*f   # angular velocity [rad/s]
+    pos0 = np.array([0.5, 0.0, 0.0]) # initial states
 
-    x0_tray = 0.5
-    y0_tray = 0.0
+    # xyz position
+    pos = np.array([pos0[0]+radius*np.cos(w*(t)), pos0[1]+radius*np.sin(w*(t)), pos0[2]+z_amplitude*np.sin(w*t)]) 
+    # xyz velocity
+    vel = np.array([radius*(-w)*np.sin(w*(t)), radius*(+w)*np.cos(w*(t)), z_amplitude*w*np.cos(w*t)])
+    # rpy orientation
+    rpy = np.array([np.pi/8*np.sin(w*t), 0.0, 0.0])
+    drpy = np.array([np.pi/8*w*np.cos(w*t) , 0.0, 0.0])
     
-    #phi = atan2(-1, 0)/ (2*pi) = -2.5
-    phi = 0#-2.5
-    
-    # position points
-    x_circ_tray  = x0_tray + r_circ*np.cos(w*(t+phi))
-    y_circ_tray  = y0_tray + r_circ*np.sin(w*(t+phi))
-    z_circ_tray  = r_z*np.sin(w*t)
-
-    # velocity points
-    dx_circ_tray = r_circ*( (-w)*np.sin(w*(t+phi)) )
-    dy_circ_tray = r_circ*( (+w)*np.cos(w*(t+phi)) )
-    dz_circ_tray = r_z*w*np.cos(w*t)
-
-    # acceleration points
-    ddx_circ_tray = r_circ*( (-w*w)*np.cos(w*(t+phi)) )
-    ddy_circ_tray = r_circ*( (-w*w)*np.sin(w*(t+phi)) )    
-    ddz_circ_tray = r_z*(-w*w)*np.sin(w*t)
-
-    # jerk points
-    dddx_circ_tray = r_circ*( (+w*w*w)*np.sin(w*(t+phi)) )
-    dddy_circ_tray = r_circ*( (-w*w*w)*np.cos(w*(t+phi)) )
-    dddz_circ_tray = r_z*(-w*w*w)*np.cos(w*t)
-
-    # vectors
-    pos   = [x_circ_tray, y_circ_tray, z_circ_tray]
-    vel   = [dx_circ_tray, dy_circ_tray, dz_circ_tray]
-    accel = [ddx_circ_tray, ddy_circ_tray, ddz_circ_tray]
-    jerk  = [dddx_circ_tray, dddy_circ_tray, dddz_circ_tray] 
-
-    return pos, vel, accel, jerk
+    # return end-effector pose and its time-derivative
+    return np.concatenate((pos, rpy), axis=0), np.concatenate((vel, drpy), axis=0)
 
 def reference_trajectory(x_des, dx_des, x_ref0, dx_ref0, dt):
     """
@@ -355,14 +329,22 @@ def rot2rpy_unwrapping(R, rpy_old):
     rpy[2] = np.arctan2(R32/np.cos(rpy[1]), R33/np.cos(rpy[1]))
 
     for i in range(3):
-        if(rpy[i]<(rpy_old[i]-np.pi)):
+        if(rpy[i]<=(rpy_old[i]-np.pi)):
+            print(f"{i}: uuper limit")
+            print(f"rpy: {np.rad2deg(rpy[i])}")
+            print(f"old: {np.rad2deg(rpy_old[i])}")
+            print(f"new: {np.rad2deg(rpy[i])+360}")
             rpy[i] +=2*np.pi
-        elif(rpy[i]>(rpy_old[i]+np.pi)):
+        elif(rpy[i]>=(rpy_old[i]+np.pi)):
+            print(f"{i}: lower limit")
+            print(f"rpy: {np.rad2deg(rpy[i])}")
+            print(f"old: {np.rad2deg(rpy_old[i])}")
+            print(f"new: {np.rad2deg(rpy[i])-360}")
             rpy[i] -=2*np.pi 
     return rpy 
 
 
-def angular_velocity_rpy(rpy, drpy):
+def rpy2angularVel(rpy, drpy):
     """
     @info: compute angular velocity (w) from euler angles (roll, pitch and yaw) and its derivaties
     @inputs:
@@ -384,7 +366,30 @@ def angular_velocity_rpy(rpy, drpy):
     w = np.dot(E0, drpy)
     return w
 
-def angular_acceleration_rpy(rpy, drpy, ddrpy):
+def angularVel2rpy(w, rpy):
+    """
+    @info: compute angular velocity (w) from euler angles (roll, pitch and yaw) and its derivaties
+    @inputs:
+    -------
+        - rpy[0]: rotation in z-axis (roll)
+        - rpy[1]: rotation in y-axis (pitch)
+        - rpy[2]: rotation in x-axis (yaw)
+        - w: angular velocity
+    @outputs:
+    --------
+        - drpy[0]: rotation ratio in z-axis
+        - drpy[1]: rotation ratio in y-axis
+        - drpy[2]: rotation ratio in x-axis
+
+    """        
+    E0 = np.array(  [[0, -np.sin(rpy[0]), np.cos(rpy[0])*np.cos(rpy[1])], \
+                    [0,   np.cos(rpy[0]), np.sin(rpy[0])*np.cos(rpy[1])], \
+                    [1,         0,          -np.sin(rpy[1])       ]])
+    
+    drpy = np.dot(inv(E0), w)
+    return drpy
+
+def rpy2angularAccel(rpy, drpy, ddrpy):
     """
     @info: compute angular velocity (w) from euler angles (roll, pitch and yaw) and its derivaties
     @inputs:
@@ -696,100 +701,6 @@ class Robot(object):
     def get_g(self):
         return self.g
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-# currenty not neccesary
-def dh(d, theta, a, alpha):
-    """
-    Info: Computes homogeneous transformation matrix for Denavit-Hartenverg parameters of UR5 robot.
-
-    Inputs:
-    ------
-        - theta: [rad]
-        - alpha: [rad]
-        - d: [m]
-        - a: [m]
-    Output:
-    ------
-        - T: homogeneous transformation matrix
-    """
-    T = np.array(
-        [[np.cos(theta),    -np.cos(alpha)*np.sin(theta),   +np.sin(alpha)*np.sin(theta),   a*np.cos(theta)],
-         [np.sin(theta),    +np.cos(alpha)*np.cos(theta),   -np.sin(alpha)*np.cos(theta),   a*np.sin(theta)],
-         [      0      ,            +np.sin(alpha)      ,           +np.cos(alpha)      ,           d      ],
-         [      0      ,                    0           ,                   0           ,           1      ]])
-
-    return T
-
-def fkine_ur5(q):
-    """
-    Info: Computes forward kinematics of UR5 robot. With respect to base frame
-
-    Inputs:
-    -----
-        - q: joint configuration [6x1 rad]
-    Outputs:
-    -------
-        - T: homogenoeus transformation matrix that relates end-effector with base.
-    """
-    #           d               th              a               alpha
-    T01 = dh(0.08916,          +q[0],            0.0,            np.pi/2)
-    T12 = dh(    0.0,          +q[1],         -0.425,                0.0)
-    T23 = dh(    0.0,          +q[2],         -0.392,                0.0)
-    T34 = dh(0.10915,          +q[3],            0.0,            np.pi/2)    
-    T45 = dh(0.09465,     np.pi+q[4],            0.0,            np.pi/2)
-    T56 = dh( 0.0823,          +q[5],            0.0,                0.0)
-    # relate end effector with base link
-    T02 = np.dot(T01, T12)
-    T03 = np.dot(T02, T23)
-    T04 = np.dot(T03, T34)
-    T05 = np.dot(T04, T45)
-    T06 = np.dot(T05, T56)
-    
-    #print("T01: ",T01[0:3,3])
-    #print("T02: ",T02[0:3,3])
-    #print("T03: ",T03[0:3,3])
-    #print("T04: ",T04[0:3,3])
-    #print("T05: ",T05[0:3,3])
-    #print("T06: ",T06[0:3,3])
-    return T06
-
-
-def jacobian_xyz_ur5(q, delta=0.0001):
-    """
-    Info: Analytic jacobian for cartesian position
-    
-    Inputs:
-    ------
-        - q: joint configuration [6x1 rad]
-    
-    Outputs:
-    -------
-        - J: analytic jacobian [3x6]
-    """
-    J = np.zeros((3,6))
-    # Initial homogeneous transformation (using q)
-    T = fkine_ur5(q)
-    for i in range(6):
-        dq      = copy(q)
-        dq[i]   = dq[i] + delta
-        dT      = fkine_ur5(dq)
-        J[:,i]  = (dT[0:3,3] - T[0:3,3])/delta
-    return J        
-
-
-
 class MultipleKalmanDerivator:
     """
     @info creates a kalman filter for each degree of freedom
@@ -907,6 +818,7 @@ class DataReader:
         self.max_count = 0
         self.df = None
         self.i = 0
+        self.rpy_old = np.zeros(3)
 
     def read_dataset(self, right_arm = False):
         self.df = pd.read_csv(self.datapath, delimiter = r"\s+", header = None)
@@ -948,7 +860,8 @@ class DataReader:
             z = df.iloc[i, iz - 1] - 0.1 #+ 0.8 #+0.5#
 
             R = df.iloc[i, iRs-1:iRe].to_numpy().reshape(3,3)
-            rpy = rot2rpy(R)
+            rpy=rot2rpy_unwrapping(R, self.rpy_old)
+            self.rpy_old = copy(rpy)
 
             roll = rpy[0]
             pitch = rpy[1]
