@@ -330,16 +330,8 @@ def rot2rpy_unwrapping(R, rpy_old):
 
     for i in range(3):
         if(rpy[i]<=(rpy_old[i]-np.pi)):
-            print(f"{i}: uuper limit")
-            print(f"rpy: {np.rad2deg(rpy[i])}")
-            print(f"old: {np.rad2deg(rpy_old[i])}")
-            print(f"new: {np.rad2deg(rpy[i])+360}")
             rpy[i] +=2*np.pi
         elif(rpy[i]>=(rpy_old[i]+np.pi)):
-            print(f"{i}: lower limit")
-            print(f"rpy: {np.rad2deg(rpy[i])}")
-            print(f"old: {np.rad2deg(rpy_old[i])}")
-            print(f"new: {np.rad2deg(rpy[i])-360}")
             rpy[i] -=2*np.pi 
     return rpy 
 
