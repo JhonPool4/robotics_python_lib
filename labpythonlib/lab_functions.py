@@ -71,7 +71,7 @@ def step_reference_generator(q0, a, t_step, t):
         ddq = 0         # [rad/s^2]            
     return q, dq, ddq
 
-def circular_trayectory_generator(t,radius=0.05, z_amp=0.02, rpy_amp=np.zeros(3), freq=0.1):
+def circular_trayectory_generator(t,radius=0.05, z_amp=0.02, rpy_amp=np.zeros(3), freq_xyz=0.1, freq_rpy=0.1):
     """
     @info generate points of a circular trayectory.
 
@@ -89,17 +89,18 @@ def circular_trayectory_generator(t,radius=0.05, z_amp=0.02, rpy_amp=np.zeros(3)
     """
 
     # Parameters of circular trayetory     
-    w = 2*np.pi*freq   # angular velocity [rad/s]
+    w_xyz = 2*np.pi*freq_xyz   # angular velocity [rad/s]
+    w_rpy = 2*np.pi*freq_rpy   # angular velocity [rad/s]
     pos0 = np.array([0.5, 0.0, 0.0]) # initial states
 
     # xyz position
-    pos = np.array([pos0[0]+radius*np.cos(w*(t)), pos0[1]+radius*np.sin(w*(t)), pos0[2]+z_amp*np.sin(w*t)]) 
+    pos = np.array([pos0[0]+radius*np.cos(w_xyz*(t)), pos0[1]+radius*np.sin(w_xyz*(t)), pos0[2]+z_amp*np.sin(w_xyz*t)]) 
     # xyz velocity
-    vel = np.array([radius*(-w)*np.sin(w*(t)), radius*(+w)*np.cos(w*(t)), z_amp*w*np.cos(w*t)])
+    vel = np.array([radius*(-w_xyz)*np.sin(w_xyz*(t)), radius*(+w_xyz)*np.cos(w_xyz*(t)), z_amp*w_xyz*np.cos(w_xyz*t)])
     # rpy orientation
     R  = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
-    rpy = rot2rpy(R) + rpy_amp*np.sin(w*t)
-    drpy = rpy_amp*w*np.cos(w*t)
+    rpy = rot2rpy(R) + rpy_amp*np.sin(w_rpy*t)
+    drpy = rpy_amp*w_rpy*np.cos(w_rpy*t)
     
     # return end-effector pose and its time-derivative
     return np.concatenate((pos, rpy), axis=0), np.concatenate((vel, drpy), axis=0)
